@@ -415,24 +415,32 @@ struct ToppingButton: View {
 
 struct CartView: View {
     @ObservedObject var cartManager: CartManager
-    @State private var showingCheckout = false
+    @State private var showingCelebration = false
+    @State private var orderTotal: Double = 0
+    @State private var orderItemCount: Int = 0
     
     var body: some View {
         NavigationStack {
-            Group {
-                if cartManager.items.isEmpty {
-                    emptyCartView
-                } else {
-                    cartList
+            ZStack {
+                Group {
+                    if cartManager.items.isEmpty {
+                        emptyCartView
+                    } else {
+                        cartList
+                    }
                 }
-            }
-            .navigationTitle("🛒 Your Cart")
-            .alert("Order Placed! 🎉", isPresented: $showingCheckout) {
-                Button("OK") {
-                    cartManager.clearCart()
+                .navigationTitle("🛒 Your Cart")
+                
+                if showingCelebration {
+                    OrderCelebrationView(
+                        total: orderTotal,
+                        itemCount: orderItemCount
+                    ) {
+                        withAnimation { showingCelebration = false }
+                        cartManager.clearCart()
+                    }
+                    .transition(.opacity)
                 }
-            } message: {
-                Text("Your delicious pizzas are on the way! Estimated delivery: 30-45 minutes.")
             }
         }
     }
@@ -480,7 +488,11 @@ struct CartView: View {
             
             Section {
                 Button {
-                    showingCheckout = true
+                    orderTotal = cartManager.totalPrice
+                    orderItemCount = cartManager.items.count
+                    withAnimation(.spring(response: 0.4)) {
+                        showingCelebration = true
+                    }
                 } label: {
                     HStack {
                         Spacer()
@@ -532,6 +544,197 @@ struct CartItemRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Order Celebration
+
+struct ConfettiPiece: Identifiable {
+    let id = UUID()
+    var x: CGFloat
+    var y: CGFloat
+    let color: Color
+    let size: CGFloat
+    let rotation: Double
+    let speed: Double
+}
+
+struct OrderCelebrationView: View {
+    let total: Double
+    let itemCount: Int
+    let onDismiss: () -> Void
+    
+    @State private var confetti: [ConfettiPiece] = []
+    @State private var showContent = false
+    @State private var cardScale: CGFloat = 0.5
+    @State private var checkmarkTrim: CGFloat = 0
+    @State private var timer: Timer?
+    
+    private let confettiColors: [Color] = [
+        .orange, .red, .yellow, .green, .blue, .pink, .purple
+    ]
+    
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+            
+            // Confetti layer
+            ForEach(confetti) { piece in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(piece.color)
+                    .frame(width: piece.size, height: piece.size * 1.5)
+                    .rotationEffect(.degrees(piece.rotation))
+                    .position(x: piece.x, y: piece.y)
+            }
+            
+            // Celebration card
+            if showContent {
+                VStack(spacing: 24) {
+                    // Animated checkmark
+                    ZStack {
+                        Circle()
+                            .fill(Color.green.opacity(0.15))
+                            .frame(width: 100, height: 100)
+                        
+                        Circle()
+                            .stroke(Color.green, lineWidth: 3)
+                            .frame(width: 100, height: 100)
+                        
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 44, weight: .bold))
+                            .foregroundColor(.green)
+                            .scaleEffect(checkmarkTrim)
+                    }
+                    
+                    Text("Order Placed!")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    
+                    Text("🍕 \(itemCount) \(itemCount == 1 ? "pizza" : "pizzas") on the way!")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                    
+                    // Delivery tracker card
+                    VStack(spacing: 16) {
+                        HStack {
+                            Image(systemName: "clock.fill")
+                                .foregroundColor(.orange)
+                            Text("Estimated: 30-45 min")
+                                .fontWeight(.medium)
+                            Spacer()
+                        }
+                        
+                        // Progress bar
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.orange.opacity(0.2))
+                                    .frame(height: 8)
+                                
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.orange)
+                                    .frame(width: geo.size.width * 0.15, height: 8)
+                            }
+                        }
+                        .frame(height: 8)
+                        
+                        HStack {
+                            Label("Preparing", systemImage: "frying.pan.fill")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                            Spacer()
+                            Label("Baking", systemImage: "flame")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Label("Delivery", systemImage: "bicycle")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Divider()
+                        
+                        HStack {
+                            Text("Total paid")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("$\(total, specifier: "%.2f")")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    .padding()
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(16)
+                    
+                    Button(action: onDismiss) {
+                        Text("Done")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.orange)
+                            .cornerRadius(12)
+                    }
+                }
+                .padding(28)
+                .background(Color(.systemBackground))
+                .cornerRadius(24)
+                .shadow(radius: 20)
+                .padding(.horizontal, 24)
+                .scaleEffect(cardScale)
+            }
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                showContent = true
+                cardScale = 1.0
+            }
+            withAnimation(.easeOut(duration: 0.6).delay(0.3)) {
+                checkmarkTrim = 1.0
+            }
+            startConfetti()
+        }
+        .onDisappear {
+            timer?.invalidate()
+        }
+    }
+    
+    private func startConfetti() {
+        // Initial burst
+        for _ in 0..<40 {
+            confetti.append(makeConfetti())
+        }
+        
+        // Continuous rain
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            withAnimation(.linear(duration: 0.02)) {
+                // Add new pieces
+                if confetti.count < 80 {
+                    confetti.append(makeConfetti())
+                }
+                // Animate all pieces downward
+                for i in confetti.indices {
+                    confetti[i].y += confetti[i].speed
+                    confetti[i].x += CGFloat.random(in: -1...1)
+                }
+                // Remove pieces that fell off screen
+                confetti.removeAll { $0.y > 900 }
+            }
+        }
+    }
+    
+    private func makeConfetti() -> ConfettiPiece {
+        ConfettiPiece(
+            x: CGFloat.random(in: 0...UIScreen.main.bounds.width),
+            y: CGFloat.random(in: -50...0),
+            color: confettiColors.randomElement()!,
+            size: CGFloat.random(in: 4...8),
+            rotation: Double.random(in: 0...360),
+            speed: Double.random(in: 2...6)
+        )
     }
 }
 
